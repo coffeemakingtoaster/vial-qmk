@@ -345,7 +345,7 @@ oled_rotation_t oled_init_kb(oled_rotation_t rotation) {
 
 void spawn_obstacle(int index){
         obstacle_array[index].x = rand() % ((63 - 5) + 1 - 0) + 0;
-        obstacle_array[index].y = 0;
+        obstacle_array[index].y = 10;
         obstacle_array[index].size = 10;
 }
 
@@ -389,6 +389,9 @@ bool oled_task_kb(void) {
             current_obstacle_count++;
         }
 
+        oled_set_cursor(0, 0);
+        oled_write_ln_P(PSTR(" ! DODGE ! "), false);
+
         int minimum = 100;
         int danger_x = 255;
 
@@ -401,7 +404,7 @@ bool oled_task_kb(void) {
                 minimum = obstacle_array[i].y;
             }
 
-            if (obstacle_array[i].y > 50 && obstacle_array[i].y < 90){
+            if (obstacle_array[i].y > 60 && obstacle_array[i].y < 90){
                 danger_x = obstacle_array[i].x;
             }
 
@@ -413,7 +416,7 @@ bool oled_task_kb(void) {
             if (obstacle_array[i].y > 128){
                 srand(obstacle_array[i].x);
                 draw_rect(obstacle_array[i].x, obstacle_array[i].y, obstacle_array[i].size, false);
-                obstacle_array[i].y = 0;
+                obstacle_array[i].y = 10;
                 obstacle_array[i].x = rand() % ((63 - 10) + 1 - 0) + 0;
             }
         }
