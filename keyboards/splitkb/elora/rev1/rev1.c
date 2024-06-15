@@ -22,12 +22,45 @@
 #include "matrix.h"
 #include "keyboard.h"
 
+#include <time.h>
+#include <stdlib.h>
+#include <math.h>
+#include <stdio.h>
+#include <time.h>
+
 #include "myriad.h"
 
 // Needed for early boot
 #include "hardware/xosc.h"
 
+
 bool is_oled_enabled = true;
+
+int spaceship_dodge_direction = 0;
+
+int coffee_frame_counter = 0;
+
+typedef struct Entity {
+    int x;
+    int y;
+    // This assumes the entities to have a quadrat like shape
+    int size;
+} Entity;
+
+int current_obstacle_count = 0;
+
+int highest_obstacle_y = 0;
+
+// Result of (128 * 64)/ 8 -> 1 bit for every pixel
+char PROGMEM frame_buffer [1024];
+
+Entity obstacle_array[3];
+
+Entity spaceship = {
+    32,
+    96,
+    5
+};
 
 //// Early boot
 
@@ -41,18 +74,18 @@ static void enter_standby_mode(void) {
         // - deinit PLL
         // - MEMPOWERDOWN
         // - QSPI power-down (idle use is 10-50 uA)
-    
+
         // The RP2040 *should* be able to power-down to about 180uA,
         // while the QSPI chip can do 1-15 uA.
-    
+
         // Additional 3V3 power usage which can't be disabled:
         // - Matrix SPI NOT gate: 0.1-4 uA
         // - Matrix SPI tri-state buffer: 0.1-10 uA
         // - Shift registers: 5x 0.1-2 uA
-    
+
         // Turns off the crystal oscillator until the core is woken by an interrupt.
         // This will block and hence the entire system will stop, until an interrupt wakes it up.
-        // This function will continue to block until the oscillator becomes stable after its wakeup. 
+        // This function will continue to block until the oscillator becomes stable after its wakeup.
         xosc_dormant();
     }
 }
@@ -89,7 +122,7 @@ void keyboard_pre_init_kb(void) {
     // We have to get the SPI interface working quite early,
     // So make sure it is available well before we need it
     spi_init();
-    
+
     keyboard_pre_init_user();
 }
 
@@ -171,7 +204,7 @@ void encoder_read_pads_from(bool pads[], matrix_row_t mat[]) {
     // First two matrix rows:
     //
     // Pin  A   B   C   D   E   F   G   H
-    // Left: 
+    // Left:
     //   { __, __, __, __, __, __, A1, B1 },
     //   { A3, B3, A2, B2, __, __, __, __ }
     // Right:
@@ -260,7 +293,7 @@ void encoder_read_pads(uint8_t count, bool pads[]) {
 // )
 
 
-led_config_t g_led_config = { 
+led_config_t g_led_config = {
     {
     //COL  01   02   03   04   05   011   010   09    ROW
         {   5, NLD, NLD, NLD,   5,   5, NLD, NLD }, // 00
@@ -276,7 +309,7 @@ led_config_t g_led_config = {
         {   9,   9,  10,  10,   7,   7,   8,   8 }, // 09
         {   9,   9,   9,   9,   8,   8,   8,   8 }, // 10
         { NLD, NLD, NLD, NLD, NLD, NLD, NLD, NLD }, // 11
-    }, 
+    },
     {
         // { 112, 32 } is the center
         {90 , 0},  // 0
@@ -291,10 +324,10 @@ led_config_t g_led_config = {
         {224, 64}, // 9
         {179, 64}, // 10
         {134, 64}   // 11
-    }, 
+    },
     {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-    } 
+    }
 };
 #endif
 
@@ -305,6 +338,34 @@ oled_rotation_t oled_init_kb(oled_rotation_t rotation) {
     } else {
         return OLED_ROTATION_90;
     }
+    for (int i = 0; i< 1024; i++){
+        frame_buffer[i] = 0x00;
+    }
+}
+
+void spawn_obstacle(int index){
+        obstacle_array[index].x = rand() % ((63 - 5) + 1 - 0) + 0;
+        obstacle_array[index].y = 0;
+        obstacle_array[index].size = 10;
+}
+
+void draw_player(int x, int y, int size){
+    for (int c_x=x; c_x<(x+size); c_x++){
+        oled_write_pixel(c_x, y, true);
+        oled_write_pixel(c_x, y+size, true);
+    }
+    for (int c_y = y; c_y<y+size; c_y++){
+        oled_write_pixel(x, c_y, true);
+        oled_write_pixel(x + size, c_y, true);
+    }
+}
+
+void draw_rect(int x, int y, int size, bool on){
+    for (int c_x=x; c_x<(x+size); c_x++){
+        for (int c_y=y; c_y<(y+size); c_y++){
+            oled_write_pixel(c_x, c_y, on);
+        }
+    }
 }
 
 bool oled_task_kb(void) {
@@ -314,66 +375,102 @@ bool oled_task_kb(void) {
 
     if (!is_oled_enabled) {
         oled_off();
-        return false;
     } else  {
         oled_on();
     }
 
     if (is_keyboard_master()) {
-        oled_write_P(PSTR("Elora rev1\n\n"), false);
+        // Check if new obstacle can and should be spawned
+        if (current_obstacle_count == 0){
+            spawn_obstacle(0);
+            current_obstacle_count++;
+        } else if (current_obstacle_count < 3 && highest_obstacle_y >= 40){
+            spawn_obstacle(current_obstacle_count);
+            current_obstacle_count++;
+        }
 
-        // Keyboard Layer Status
-        // Ideally we'd print the layer name, but no way to know that for sure
-        // Fallback option: just print the layer number
-        uint8_t layer = get_highest_layer(layer_state | default_layer_state);
-        oled_write_P(PSTR("Layer: "), false);
-        oled_write(get_u8_str(layer, ' '), false);
+        int minimum = 100;
+        int danger_x = 255;
 
-        // Keyboard LED Status
-        led_t led_usb_state = host_keyboard_led_state();
-        oled_write_P(led_usb_state.num_lock ? PSTR(" NUM") : PSTR("    "), false);
-        oled_write_P(led_usb_state.caps_lock ? PSTR("CAP") : PSTR("   "), false);
-        oled_write_P(led_usb_state.scroll_lock ? PSTR("SCR") : PSTR("   "), false);
+        // update obstacles
+        for (int i = 0; i < current_obstacle_count; i++){
 
-        // QMK Logo
-        // clang-format off
-        static const char PROGMEM qmk_logo[] = {
-            0x81,0x82,0x83,0x84,0x0a,
-            0xa1,0xa2,0xa3,0xa4,0x85,0x86,0x87,0x88,0x89,0x0a,
-            0xc1,0xc2,0xc3,0xc4,0xa5,0xa6,0xa7,0xa8,0xa9,0x0a,
-            0x8a,0x8b,0x8c,0x8d,0xc5,0xc6,0xc7,0xc8,0xc9,0x0a,
-            0xaa,0xab,0xac,0xad,0xae,0xaf,0xb0,0xb1,0xb2,0xb3,0x00
-        };
-        // clang-format on
-        oled_set_cursor(0, oled_max_lines()-5);
-        oled_write_P(qmk_logo, false);
+            obstacle_array[i].y = obstacle_array[i].y + 1;
+
+            if (obstacle_array[i].y < minimum){
+                minimum = obstacle_array[i].y;
+            }
+
+            if (obstacle_array[i].y > 50 && obstacle_array[i].y < 90){
+                danger_x = obstacle_array[i].x;
+            }
+
+            // clear old rect
+            draw_rect(obstacle_array[i].x, obstacle_array[i].y - 1, obstacle_array[i].size, false);
+            draw_rect(obstacle_array[i].x, obstacle_array[i].y, obstacle_array[i].size, true);
+
+            // did obstacle leave frame?
+            if (obstacle_array[i].y > 128){
+                srand(obstacle_array[i].x);
+                draw_rect(obstacle_array[i].x, obstacle_array[i].y, obstacle_array[i].size, false);
+                obstacle_array[i].y = 0;
+                obstacle_array[i].x = rand() % ((63 - 10) + 1 - 0) + 0;
+            }
+        }
+
+        highest_obstacle_y = minimum;
+
+        // Player logic
+        draw_rect(spaceship.x, spaceship.y, spaceship.size + 1, false);
+
+        // Does spaceship have to dodge?
+        if (((spaceship.x - danger_x < 30  && spaceship.x - danger_x >= 0 ) ||
+            (spaceship.x - danger_x > -30 && spaceship.x - danger_x <= 0 )) && danger_x != 255){
+            if (danger_x >= 32){
+                spaceship.x--;
+            } else {
+                 spaceship.x++;
+            }
+        }
+
+        draw_player(spaceship.x, spaceship.y, spaceship.size);
+
+
     } else {
         // Elora sigil
-        // clang-format off
-        static const char PROGMEM elora_logo[] = {
-            0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,128,128,192,224,224,240,248,120, 56, 60,188,158,158,222,206,207,207,207,239,239,239,239,239,239,207,207,207,206,222,158,158,188, 60, 56,120,248,240,224,224,192,128,128,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,192,224,248,252,126, 31,143,199,227,243,249,124, 60, 30, 31, 15,  7,  7,  3,  3,  3,131,193,225,241,249,253,255,255,255,255,127, 63, 31, 15,  7,  7,  7,143,223,254,252,252,249,243,227,199,143, 31,126,252,248,224,192,  0,  0,  0,  0,  0,
-            0,192,240,254,255, 63,  7,227,248,252,127, 31, 15,  3,  1,  0,  0,  0,128,192,224,240,248,252,254,255,255,255,127, 63, 31, 15,  7,  3,  1,128,192,224,240,248,252,254,255,255,255,255,127, 63, 31, 15,  7, 15, 31,255,252,248,227,  7, 63,255,254,240,192,  0,252,255,255,255,  1,224,255,255,255,  7,  0,  0,  0,  0,  0,  0,  0,  0, 31, 31, 31, 31, 31, 15,  7,  3,  1,  0,  0,  0,240,248,252,254,255,255,255,255,127, 63, 31, 15,  7,  3,  1,128,192,224,240,248,252,254,255,255,255,255,255,255,224,  1,255,255,255,252,
-            63,255,255,255,128,  7,255,255,255,224,  0,  0,  0,  0,  0,  0,  0,  0,  0,128,192,224,240,248,248,248,248,248,248,  0,  3,  3,  3,  3,  3,  3,  1,128,192,224,240,248,252,254,255,255,255,127, 63, 31, 15,  7,  3,  1,224,255,255,255,  7,128,255,255,255, 63,  0,  3, 15,127,255,252,224,199, 31, 63,254,248,240,192,128,  0,  0,  0,  0, 31, 31, 31, 31, 31, 31, 15,  7,  3,  1,  0,  0,  0,  0,  0,  0, 62, 63, 63, 63, 63, 63, 31, 15,  7,  3,  1,  0,  0,  0,128,192,240,248,254, 63, 31,199,224,252,255,127, 15,  3,  0, 
-            0,  0,  0,  0,  0,  3,  7, 31, 63,126,248,241,227,199,207,159, 62, 60,120,248,240,224,224,192,192,192,192,128,128,128,128,128,128,128,128,128,128,192,192,192,192,224,224,240,248,120, 60, 62,159,207,199,227,241,248,126, 63, 31,  7,  3,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  3,  7,  7, 15, 31, 30, 28, 60, 61,121,121,123,115,243,243,243,247,247,247,247,247,247,243,243,243,115,123,121,121, 61, 60, 28, 30, 31, 15,  7,  7,  3,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-        };
-        // clang-format on
-        oled_set_cursor(0, (oled_max_lines()/2)-4); // logo is 8 lines high, so center vertically
-        oled_write_raw_P(elora_logo, sizeof(elora_logo));
+
+            oled_set_cursor(0, 2);
+
+            if (coffee_frame_counter < 5){
+                oled_write_raw_P(coffee_frame_1, sizeof(coffee_frame_1));
+            } else if (coffee_frame_counter >= 5 && coffee_frame_counter < 10){
+                oled_write_raw_P(coffee_frame_2, sizeof(coffee_frame_2));
+            } else if (coffee_frame_counter >= 10 && coffee_frame_counter < 15){
+                oled_write_raw_P(coffee_frame_3, sizeof(coffee_frame_3));
+            } else {
+                oled_write_raw_P(coffee_frame_4, sizeof(coffee_frame_4));
+            }
+
+            coffee_frame_counter = (coffee_frame_counter + 1) % 20;
+
+            oled_set_cursor(0, oled_max_lines()-5);
+            oled_write_ln_P(PSTR("Relax...\nit`s\ncoffee\ntime"), false);
+
+        }
+
+        return false;
     }
 
-    return false;
-}
-
-void housekeeping_task_kb(void) {
-    is_oled_enabled = last_input_activity_elapsed() < 60000;
-}
+    void housekeeping_task_kb(void) {
+        is_oled_enabled = last_input_activity_elapsed() < 60000;
+    }
 #endif
 
 #ifdef ENCODER_ENABLE
-bool encoder_update_kb(uint8_t index, bool clockwise) {
-    if (!encoder_update_user(index, clockwise)) {
-        return false;
-    }
+    bool encoder_update_kb(uint8_t index, bool clockwise) {
+        if (!encoder_update_user(index, clockwise)) {
+            return false;
+        }
 
     if (index == 0 || index == 1 || index == 2) {
         // Left side
