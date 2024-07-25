@@ -233,9 +233,9 @@
         };
         // clang-format on
 
-static const int SPACESHIP_SIZE = 5;
+static const int SPACESHIP_SIZE = 7;
 static const bool SPACESHIP_SPRITE[] = {
-    false, false, true, false, false, false, true, false, true, false, true, true, true, true, true, false, true, true, true, false, false, true, false, true, false
+        false, false, true, false, true, false, false, false, false, true, false, true, false, false, false, false, true, false, true, false, false, false, true, true, false, true, true, false, false, true, true, true, true, true, false, true, true, true, true, true, true, true, false, false, true, false, true, false, false
 };
 
 static const int ASTEROID_SIZE = 10;
