@@ -43,8 +43,6 @@ int coffee_frame_counter = 0;
 typedef struct Entity {
     int x;
     int y;
-    // This assumes the entities to have a quadrat like shape
-    int size;
 } Entity;
 
 int current_obstacle_count = 0;
@@ -59,7 +57,6 @@ Entity obstacle_array[3];
 Entity spaceship = {
     32,
     96,
-    5
 };
 
 //// Early boot
@@ -346,27 +343,32 @@ oled_rotation_t oled_init_kb(oled_rotation_t rotation) {
 void spawn_obstacle(int index){
         obstacle_array[index].x = rand() % ((63 - 5) + 1 - 0) + 0;
         obstacle_array[index].y = 10;
-        obstacle_array[index].size = 10;
 }
 
-void draw_player(int x, int y, int size){
-    for (int c_x=x; c_x<(x+size); c_x++){
-        oled_write_pixel(c_x, y, true);
-        oled_write_pixel(c_x, y+size, true);
+void draw_spaceship(int x, int y){
+    for (int c_x=x; c_x<(x+SPACESHIP_SIZE); c_x++){
+        for (int c_y=y; c_y<(y+SPACESHIP_SIZE); c_y++){
+            oled_write_pixel(c_x, c_y, SPACESHIP_SPRITE[(c_y-y) *  SPACESHIP_SIZE + (c_x-x)]);
+        }
     }
-    for (int c_y = y; c_y<y+size; c_y++){
-        oled_write_pixel(x, c_y, true);
-        oled_write_pixel(x + size, c_y, true);
+}
+
+void draw_asteroid(int x, int y){
+    for (int c_x=x; c_x<(x+ASTEROID_SIZE); c_x++){
+        for (int c_y=y; c_y<(y+ASTEROID_SIZE); c_y++){
+            oled_write_pixel(c_x, c_y, ASTEROID_SPRITE[(c_y-y) *  ASTEROID_SIZE + (c_x-x)]);
+        }
     }
 }
 
 void draw_rect(int x, int y, int size, bool on){
-    for (int c_x=x; c_x<(x+size); c_x++){
-        for (int c_y=y; c_y<(y+size); c_y++){
+     for (int c_x=x; c_x<(x+size); c_x++){
+         for (int c_y=y; c_y<(y+size); c_y++){
             oled_write_pixel(c_x, c_y, on);
         }
     }
 }
+
 
 bool oled_task_kb(void) {
     if (!oled_task_user()) {
@@ -392,7 +394,9 @@ bool oled_task_kb(void) {
         oled_set_cursor(0, 0);
         oled_write_ln_P(PSTR(" ! DODGE ! "), false);
 
+        // Get highest current obstacle -> used for spawning more obstacles in the beginning
         int minimum = 100;
+        // x value of lowest meteor
         int danger_x = 255;
 
         // update obstacles
@@ -409,13 +413,13 @@ bool oled_task_kb(void) {
             }
 
             // clear old rect
-            draw_rect(obstacle_array[i].x, obstacle_array[i].y - 1, obstacle_array[i].size, false);
-            draw_rect(obstacle_array[i].x, obstacle_array[i].y, obstacle_array[i].size, true);
+            draw_rect(obstacle_array[i].x, obstacle_array[i].y - 1, ASTEROID_SIZE, false);
+            draw_asteroid(obstacle_array[i].x, obstacle_array[i].y);
 
             // did obstacle leave frame?
             if (obstacle_array[i].y > 128){
-                srand(obstacle_array[i].x);
-                draw_rect(obstacle_array[i].x, obstacle_array[i].y, obstacle_array[i].size, false);
+                srand(obstacle_array[i].x * i);
+                draw_rect(obstacle_array[i].x, obstacle_array[i].y, ASTEROID_SIZE, false);
                 obstacle_array[i].y = 10;
                 obstacle_array[i].x = rand() % ((63 - 10) + 1 - 0) + 0;
             }
@@ -424,7 +428,7 @@ bool oled_task_kb(void) {
         highest_obstacle_y = minimum;
 
         // Player logic
-        draw_rect(spaceship.x, spaceship.y, spaceship.size + 1, false);
+        draw_rect(spaceship.x, spaceship.y, SPACESHIP_SIZE + 1, false);
 
         // Does spaceship have to dodge?
         if (((spaceship.x - danger_x < 30  && spaceship.x - danger_x >= 0 ) ||
@@ -436,12 +440,9 @@ bool oled_task_kb(void) {
             }
         }
 
-        draw_player(spaceship.x, spaceship.y, spaceship.size);
-
+        draw_spaceship(spaceship.x, spaceship.y);
 
     } else {
-        // Elora sigil
-
             oled_set_cursor(0, 2);
 
             if (coffee_frame_counter < 5){
