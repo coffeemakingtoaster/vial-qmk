@@ -431,8 +431,8 @@ bool oled_task_kb(void) {
         draw_rect(spaceship.x, spaceship.y, SPACESHIP_SIZE + 1, false);
 
         // Does spaceship have to dodge?
-        if (((spaceship.x - danger_x < 30  && spaceship.x - danger_x >= 0 ) ||
-            (spaceship.x - danger_x > -30 && spaceship.x - danger_x <= 0 )) && danger_x != 255){
+        if (((spaceship.x - danger_x < 25  && spaceship.x - danger_x >= 0 ) ||
+            (spaceship.x - danger_x > -25 && spaceship.x - danger_x <= 0 )) && danger_x != 255){
             if (danger_x >= 32){
                 spaceship.x--;
             } else {
@@ -458,8 +458,14 @@ bool oled_task_kb(void) {
             coffee_frame_counter = (coffee_frame_counter + 1) % 20;
 
             oled_set_cursor(0, oled_max_lines()-5);
-            oled_write_ln_P(PSTR("Relax...\nit`s\ncoffee\ntime"), false);
 
+            uint8_t layer = get_highest_layer(layer_state | default_layer_state);
+
+            if (layer != 3){
+                oled_write_ln_P(PSTR("Relax...\nit`s\ncoffee\ntime"), false);
+            } else {
+                oled_write_ln_P(PSTR("Go back\nto work!"), false);
+            }
         }
 
         return false;
