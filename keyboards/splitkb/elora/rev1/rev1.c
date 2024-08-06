@@ -33,7 +33,6 @@
 // Needed for early boot
 #include "hardware/xosc.h"
 
-
 bool is_oled_enabled = true;
 
 int spaceship_dodge_direction = 0;
@@ -330,6 +329,9 @@ led_config_t g_led_config = {
 
 #ifdef OLED_ENABLE
 oled_rotation_t oled_init_kb(oled_rotation_t rotation) {
+    for (int i = 0; i<1024;i++){
+        frame_buffer[i] = 0;
+    }
     if (is_keyboard_left()) {
         return OLED_ROTATION_270;
     } else {
@@ -337,6 +339,19 @@ oled_rotation_t oled_init_kb(oled_rotation_t rotation) {
     }
     for (int i = 0; i< 1024; i++){
         frame_buffer[i] = 0x00;
+    }
+}
+
+void set_pixel(int x, int y, bool on){
+    int index = floor(y / 8) * 64 + x;
+    if (index > 1023){
+        index = 1023;
+    }
+    int offset = y % 8;
+    if (on) {
+        frame_buffer[index] = frame_buffer[index] | (1 << offset);
+    } else {
+        frame_buffer[index] = frame_buffer[index] & ~(1 << offset);
     }
 }
 
@@ -348,7 +363,8 @@ void spawn_obstacle(int index){
 void draw_spaceship(int x, int y){
     for (int c_x=x; c_x<(x+SPACESHIP_SIZE); c_x++){
         for (int c_y=y; c_y<(y+SPACESHIP_SIZE); c_y++){
-            oled_write_pixel(c_x, c_y, SPACESHIP_SPRITE[(c_y-y) *  SPACESHIP_SIZE + (c_x-x)]);
+            //oled_write_pixel(c_x, c_y, SPACESHIP_SPRITE[(c_y-y) *  SPACESHIP_SIZE + (c_x-x)]);
+            set_pixel(c_x, c_y, SPACESHIP_SPRITE[(c_y-y) *  SPACESHIP_SIZE + (c_x-x)]);
         }
     }
 }
@@ -356,7 +372,8 @@ void draw_spaceship(int x, int y){
 void draw_asteroid(int x, int y){
     for (int c_x=x; c_x<(x+ASTEROID_SIZE); c_x++){
         for (int c_y=y; c_y<(y+ASTEROID_SIZE); c_y++){
-            oled_write_pixel(c_x, c_y, ASTEROID_SPRITE[(c_y-y) *  ASTEROID_SIZE + (c_x-x)]);
+            //oled_write_pixel(c_x, c_y, ASTEROID_SPRITE[(c_y-y) *  ASTEROID_SIZE + (c_x-x)]);
+            set_pixel(c_x, c_y, ASTEROID_SPRITE[(c_y-y) *  ASTEROID_SIZE + (c_x-x)]);
         }
     }
 }
@@ -364,7 +381,8 @@ void draw_asteroid(int x, int y){
 void draw_rect(int x, int y, int size, bool on){
      for (int c_x=x; c_x<(x+size); c_x++){
          for (int c_y=y; c_y<(y+size); c_y++){
-            oled_write_pixel(c_x, c_y, on);
+            //oled_write_pixel(c_x, c_y, on);
+            set_pixel(c_x, c_y, on);
         }
     }
 }
@@ -390,10 +408,6 @@ bool oled_task_kb(void) {
             spawn_obstacle(current_obstacle_count);
             current_obstacle_count++;
         }
-
-        oled_set_cursor(0, 0);
-        oled_write_ln_P(PSTR(" ! DODGE ! "), false);
-
         // Get highest current obstacle -> used for spawning more obstacles in the beginning
         int minimum = 100;
         // x value of lowest meteor
@@ -442,6 +456,13 @@ bool oled_task_kb(void) {
 
         draw_spaceship(spaceship.x, spaceship.y);
 
+        oled_set_cursor(0, 0);
+        oled_write_raw_P(frame_buffer, sizeof(frame_buffer));
+
+        oled_set_cursor(0, 0);
+        oled_write_ln_P(PSTR(" ! DODGE ! "), false);
+
+
     } else {
             oled_set_cursor(0, 2);
 
@@ -459,13 +480,7 @@ bool oled_task_kb(void) {
 
             oled_set_cursor(0, oled_max_lines()-5);
 
-            uint8_t layer = get_highest_layer(layer_state | default_layer_state);
-
-            if (layer != 3){
-                oled_write_ln_P(PSTR("Relax...\nit`s\ncoffee\ntime"), false);
-            } else {
-                oled_write_ln_P(PSTR("Go back\nto work!"), false);
-            }
+            oled_write_ln_P(PSTR("Relax...\nit`s\ncoffee\ntime"), false);
         }
 
         return false;
