@@ -51,6 +51,8 @@ int highest_obstacle_y = 0;
 // Result of (128 * 64)/ 8 -> 1 bit for every pixel
 char PROGMEM frame_buffer [1024];
 
+bool has_text = false;
+
 Entity obstacle_array[3];
 
 Entity spaceship = {
@@ -329,9 +331,7 @@ led_config_t g_led_config = {
 
 #ifdef OLED_ENABLE
 oled_rotation_t oled_init_kb(oled_rotation_t rotation) {
-    for (int i = 0; i<1024;i++){
-        frame_buffer[i] = 0;
-    }
+    has_text = false;
     if (is_keyboard_left()) {
         return OLED_ROTATION_270;
     } else {
@@ -400,6 +400,12 @@ bool oled_task_kb(void) {
     }
 
     if (is_keyboard_master()) {
+        if (!has_text){
+            has_text = true;
+            oled_set_cursor(0, 0);
+            oled_write_ln_P(PSTR(" ! DODGE ! "), false);
+        }
+
         // Check if new obstacle can and should be spawned
         if (current_obstacle_count == 0){
             spawn_obstacle(0);
@@ -456,12 +462,8 @@ bool oled_task_kb(void) {
 
         draw_spaceship(spaceship.x, spaceship.y);
 
-        oled_set_cursor(0, 0);
+        oled_set_cursor(0, 1);
         oled_write_raw_P(frame_buffer, sizeof(frame_buffer));
-
-        oled_set_cursor(0, 0);
-        oled_write_ln_P(PSTR(" ! DODGE ! "), false);
-
 
     } else {
             oled_set_cursor(0, 2);
